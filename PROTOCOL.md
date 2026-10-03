@@ -268,3 +268,226 @@ The sequence for this model is in `UltimaPrismBleApiImpl.java:302-310, 600-620` 
 `00006387/6487/6587-...`). That is the Realsil DFU path used by
 `com/coveiot/android/leonardo/more/activities/ActivityFirmwareUpdateKaHaRealTek.java`.
 Also avoid the services the app never uses (`6e40000a`, `494d58a9`) until they are understood.
+
+---------------------------------------------------------------------------------------------------
+
+## 6. Watch Face Studio
+
+Short version: **on this model every custom face the app produces reaches the watch as a whole face
+file over `02 8E` (section 4a). The app never uses `02 94` / `02 96` for an Ultima Prism.** There are
+two ways the app produces that file:
+
+- **(A) Watch Face Studio (web app).** The face is built on KaHa's server. The app only downloads the
+  finished `.bin` and pushes it with `02 8E`. The file format is not visible in the APK.
+- **(B) Native "Customise watch face" screen.** The app builds the file locally. It takes a bundled
+  KaHa template `.bin` and overwrites the background and preview pixels in place (`KHWatchFaceModifier`).
+  Then it pushes the result with `02 8E` as face id **996**. This works offline, and the format is
+  fully described in 6c.
+
+The `ab569x_*.zip` assets do not belong to this watch (see 6e).
+
+### 6a. Which branch the app takes for ULTIMAPRISM
+
+**Studio entry points.** The dashboard card (`WATCH_FACE_STUDIO`) and the smart-grid item `WF_STUDIO`
+appear only when `isDiySupported()` is true (`com/coveiot/android/dashboard2/util/SetupYourWatchDataHelper.java:31-45, 84-88`).
+That flag comes from the server: `DeviceModelBean.isDiyWatchFaceSupported`, from the remote device
+list (`com/coveiot/android/leonardo/dashboard/ActivityDashboardNew.java:2096-2097`). Both entry points
+open `ActivityInAppWebViewerWatchface`, which is a WebView
+(`dashboard2/util/SmartGridUtilsKt.java:240-246`, `watchfaceui/utils/AppNavigator.java:28-35`). The
+page URL is `SessionManager.getWatchFaceDiyUrl()`. That value is `data.watchface.diyToolUrl` from
+`GET app/remote/config` (`ActivityDashboardNew.java:2594-2597`, `coveaccess/CoveApiService.java:844-851`).
+The "My designs" tab also opens this page (with an edit URL parameter), or it re-applies a saved
+design (`watchfaceui/fragments/FragmentMyDesigns.java:344-351, 832-847`).
+
+**JS bridge** (`watchfaceui/webSupport/JSInterface.java`). The web app calls these methods:
+- `appIn({"reqType":"GET_X_HEADERS"})` (lines 187-199). The app answers with `CoveApi.getCustomHeaders()`,
+  which holds the API key and auth headers. The web app uses them to talk to the KaHa backend directly.
+- `appIn({"reqType":"WF_APPLY_ON_DEVICE","data":{"uid","faceId","faceType"}})` (lines 214-240). This
+  calls `ActivityInAppWebViewerWatchface.onClicked(uid, faceId, faceType)`.
+- `webOut({"resType":"WF_ASSETS_GENERATED","data":{"uid","faceType"}})` (lines 497-526). This calls
+  `onGenerated()`, the "build locally from an asset zip" path. It does nothing for this watch:
+  `WatchFaceBuilderFactory.getBuilder()` returns a builder only for `"SMA"`
+  (`watchfaceui/vendor/watchfacebuilder/WatchFaceBuilderFactory.java`), and
+  `DeviceUtils.getWatchFaceBuilderType()` returns `"SMA"` only for SMA devices and `"DEFAULT"` for
+  everything else (`devicemodels/DeviceUtils.java:3281-3284`). So **no local Studio builder exists for
+  KaHa devices.**
+
+**Path A, step by step** (`ActivityInAppWebViewerWatchface.java:1191-1236`):
+1. `POST GET/watchface/details` with body `{"faceType": <faceType>, "uids": [<uid>]}`
+   (`CoveApiService.java:1015-1016`, `coveaccess/watchface/model/WatchfaceByIdRequest.java`).
+2. Take `data.items[0]` and read `uid`, `faceId`, `faceType`, `downloadUrl` and `fileMd5Hash`.
+3. `WatchFaceDiyViewModel.downloadWatchFaceFromServerSendToWatch("watchface", downloadUrl, bean)`.
+   This downloads the file to `filesDir/watchface` and checks the MD5 if the server sent one
+   (`viewmodel/WatchFaceDiyViewModel.java:1402-1410`, and the download handler around lines 470-710).
+4. `sendWatchFaceToWatch()` parses the face id as **hexadecimal**:
+   `faceId = Integer.parseInt(bean.faceId, 16)` (lines 1232-1237). `SetWatchFaceRefreshFlagRequest`
+   is only sent when `isAutoWatchFaceRefreshFlagSupported` is set. `UltimaPrismBleApiImpl` never sets
+   it (`bleimpl/UltimaPrismBleApiImpl.java:476-563`; `BleApiUtils.java:546-590` does not touch it either).
+   So the app goes straight to `sendWatchFaceFileToWatch()` (lines 1206-1216). That builds a
+   `CustomWatchFaceFileImageRequest(filePath, faceId)` and calls `bleApi.getData()`.
+5. `CZ0LeonardoBleApiImpl.java:1482-1494` turns this into `WatchFaceUploadReq(file, faceId)`, i.e. cmd
+   `02 8E`. `UltimaPrismBleApiImpl.getData()` does not override this request.
+
+**Path B, step by step.** `ActivityWatchFace` shows the "Customise" button. It opens
+`ActivityBackgroundWatchFace` (`watchfaceui/activities/ActivityWatchFace.java:1231-1245`), which picks
+the fragment by device family. **`isCADevice()` is checked first** (`ActivityBackgroundWatchFace.java:504`),
+and its list includes `R.string.ultima_prism`, `ultima_chronos` and `wave_convex`
+(`DeviceUtils.java:4742-4745`). So the Prism gets **`FragmentWatchFaceBackgroundCA`**. It does not get
+the CY1 / CZ2 / Moyang fragments, which are the only callers of the `02 94` + `02 96` background path
+in 4b (`sendWatchFaceBackgroundToWatch` / `sendBackgroundWatchFaceToWatch`). That explains why 4b
+never produced a face here.
+
+`FragmentWatchFaceBackgroundCA`:
+- `imageWidth = 368`, `imageHeight = 448`, and `watchfaceId = 996` is **hard-coded**
+  (`fragments/FragmentWatchFaceBackgroundCA.java:87-90`). Only ULC devices switch to 240x280
+  (lines 605-607). The Prism is not a ULC device.
+- The photo goes through uCrop with `withMaxResultSize(368, 448)` and is saved as JPEG
+  (`utils/Utils.java:1285-1318`; called at lines 398 and 407).
+- "Apply" calls `sendCAWatchFaceBackgroundToWatch(backGroundType, 996)` (line 361;
+  `viewmodel/WatchFaceBackgroundViewModel.java:2093-2100`). The work happens in
+  `WatchFaceBackgroundViewModel$sendCAWatchFaceBackgroundToWatch$1$2.java`:
+  - Template: `backGroundType == 1` uses `res/raw/ca3_diy_02.bin`, otherwise `res/raw/ca3_diy_01.bin`
+    (line 151). ULC devices use `ca5_ulc_diy_1/2.bin` instead.
+  - Preview: the photo is resized to 240x280. The app draws `ca3_diy_watch_face_place_holder_transparent_whitef`
+    (or `..._blackf` when type 1) on top of it with `putOverlay`.
+  - It calls `KHWatchFaceModifier.generateNewBinFile(template, croppedPhoto, preview, filesDir/diy_output_01.bin)`
+    (line 194), then `sendWatchFaceFileToWatch(file, 996, type)` (lines 205/209,
+    `WatchFaceBackgroundViewModel.java:1816`). That sends the same `CustomWatchFaceFileImageRequest`,
+    which becomes `02 8E`.
+
+### 6b. BLE sequence (both paths)
+
+There is only one command, the legacy multi-packet `02 8E` from 4a:
+```
+generateRequest(cls=0x02, cmd=0x8E, data=<face file bytes>, extra=u16le(faceId), withSize=True, extraFirst=True)
+first frame:  7F CK 00 00 N_lo N_hi CK_lo CK_hi 02 8E L_lo L_hi | faceId_lo faceId_hi | u32le(len(file)) | 132 data bytes
+later frames: 7F CK seq_lo seq_hi | 146 data bytes
+```
+(`sdk/ble/api/request/WatchFaceUploadReq.java`. The request takes `putInt(faceId)` little-endian and
+keeps only the low 2 bytes.)
+- Path B: faceId = 996, so the extra bytes are **`E4 03`**. The template is 565,252 bytes, so the
+  size field is `04 A0 08 00`.
+- Path A: faceId = `int(server_faceId, 16)`, taken from the `GET/watchface/details` item.
+- Pacing on a KaHa Realtek chip (`services/LeonardoBleService.java:243-268`): keep a running payload
+  count (first frame len-12, later frames len-4). When `(count-6)//2048` changes, stop and wait for
+  `82 8E .. 01`. The final `82 8E .. 01`, with no frames left, means the upload is done. A last byte
+  of `00` means "watch busy". Any other value means "watch memory exceeded"
+  (`sdk/ble/parser/ProtocolParser.java:4321-4345`).
+- **There is no separate "set current face" step.** Neither path sends `02 8F`, `02 96` or a delete
+  before or after the upload. On success the app only updates its own preferences
+  (`WatchFaceDiyViewModel.java:1103-1127`; `WatchFaceBackgroundViewModel.java` around lines 1890-1920)
+  and reports to the server (`callDeviceSpecificSettingsApiDiy`). The firmware appears to activate a
+  freshly uploaded face by itself. If it does not, `02 8F 06 00 E4 03` (set current = 996) is the
+  obvious thing to try, but the app never sends it, so this is untested.
+- The app sends no image id. The face file contains its own image table.
+
+### 6c. KaHa face file format (from `KHWatchFaceModifier` + the bundled templates)
+
+The templates are copied, not modified, to `apk\studio_assets\kaha_templates\`. The originals are in
+the APK as `res/raw/ca3_diy_01.bin`, `ca3_diy_02.bin` (565,252 B, 368x448 background) and
+`ca5_ulc_diy_1.bin`, `ca5_ulc_diy_2.bin` (246,644 B, 240x280 background). All integers are
+little-endian. The app reads only the fields marked *. I decoded the rest from the files themselves
+and checked it against both template sizes.
+```
+0x00 u16  format/version            = 3
+0x02 u32  total file size           = 565252 / 246644
+0x06 u16  template/face code        = 0x60E1 (CA3), 0xF378 (ULC). Identical in the light and dark
+                                      variants, so it is NOT a checksum of the content
+0x08 u16  0
+0x0A u16  image-table length, bytes = 408 (34 entries x 12)
+0x0C      image table, 12 bytes per entry:
+            u32 offset | u16 width | u16 height | u32 size  (bit31 set = has alpha)
+          entry 0 = preview thumbnail   (* offset @0x0C, w @0x10, h @0x12)  240x280 / 144x168, 2 B/px
+          entry 1 = full background     (* offset @0x18, w @0x1C, h @0x1E)  368x448 / 240x280, 2 B/px
+          entries 2..11  big digits 0-9    38x50, alpha (CA3)
+          entries 12..21 small digits 0-9  14x18, alpha
+          entries 22..33 month names JAN..DEC 50x20, alpha
+0x0C+tableLen  layout block (143 B in CA3), runs up to entry0.offset (0x233):
+          15-byte header  09 00 05 40 00 54 00 00 00 05 00 00 00 00 01   (CA3; ULC has 30 00 38 in
+                          place of 40 00 54). Meaning unknown: copy it verbatim.
+          then one record per widget:
+            u8 0x02 | u8 kind (0x10 = digit, 0x12 = text list) | u16 x | u16 y | u8 elementId |
+            u8 n | n x u8 image-table index
+          elementIds seen: 5 = hour tens, 6 = hour units, 3 = minute tens, 4 = minute units,
+                           9 = day tens, 10 = day units, 21 (0x15) = month (12 frames)
+          CA3 positions: HH at x 99/139, MM at x 194/232, y 319. Day at x 137/152, y 389.
+          Month at x 180, y 387.
+pixel data: entries stored back to back in table order, starting at 0x233. Nothing follows the last one.
+```
+Pixel encodings:
+- No alpha (bit31 clear): **RGB565 big-endian**, 2 bytes per pixel, row-major, top-left first. The
+  app gets these bytes by copying an Android `RGB_565` bitmap into a buffer and swapping each byte pair
+  (`KHWatchFaceModifier.java:29-82`).
+- Alpha (bit31 set): 3 bytes per pixel, `[A8, RGB565_hi, RGB565_lo]`. Alpha 0 is transparent.
+- No compression and no RLE in this format. **No checksum or CRC needs updating.** The app copies the
+  new pixels over the template and writes the file out without touching any header field
+  (`KHWatchFaceModifier.java:84-130`).
+
+Python recipe for path B (exactly what the app does):
+```python
+import struct
+from PIL import Image
+t = bytearray(open('ca3_diy_01.bin','rb').read())        # light digits; ca3_diy_02 = dark variant
+def put(entry, img):
+    off, w, h, sz = struct.unpack_from('<IHHI', t, 12 + 12*entry)
+    img = img.convert('RGB').resize((w, h))               # MUST be exactly w x h (the app only checks <=)
+    px = bytearray()
+    for r, g, b in img.getdata():
+        v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+        px += bytes((v >> 8, v & 0xFF))
+    t[off:off+len(px)] = px
+put(1, Image.open('photo.jpg'))                           # background 368x448
+put(0, Image.open('photo.jpg'))                           # preview 240x280 (the app also overlays the placeholder)
+open('diy_output_01.bin','wb').write(t)
+# then send it with 02 8E, extra = b'\xE4\x03' (faceId 996), withSize, extraFirst, 2048-byte ACK pacing
+```
+The app writes the background in row order. If uCrop returns something smaller than 368x448, the app
+writes fewer bytes and the image comes out sheared. Always resize to exactly the slot size.
+
+**Resolution caveat.** The app sends this 368x448 CA3 template to the Prism unchanged, even though the
+screen is 410x502. No 410x502 KaHa template exists in the APK. The CA3 widget coordinates (y up to
+407) fit inside 410x502, so the face may render at top-left with a border, or the firmware may scale
+it. Only the watch can tell. For a native-resolution face, capture one Studio-built file for this
+model (path A `downloadUrl`). If it starts with `03 00 <u32 size>`, the same table layout applies, and
+the background can be patched in place at 410x502 the same way.
+
+### 6d. Server dependencies
+
+- Path B needs nothing from the server. The template, the face id (996) and the sizes are all in
+  the APK.
+- Path A needs, from `https://gateway.cove.kahaapi.com/` with the app's auth headers:
+  1. `GET app/remote/config`: `data.watchface.diyToolUrl`, the Studio web app URL.
+  2. The web app, using the headers it got through `GET_X_HEADERS`, creates the design on the server.
+     Its upload goes through `POST/PUT watchface/diy`, multipart with a `watchfaceJson` part plus files
+     (`CoveApiService.java:1441-1447`). It then reports a `uid`.
+  3. `POST GET/watchface/details` `{"faceType","uids":[uid]}` returns `faceId` (hex string),
+     `downloadUrl` and `fileMd5Hash`.
+  4. A download from `downloadUrl` gives the ready-made face `.bin`.
+  The APK contains no fallback for path A. The layout JSON, "basic bin" and face id all come from the
+  server.
+
+### 6e. What the `ab569x_410x502_*.zip` assets are
+
+They are **not** for KaHa or Realtek watches. `watchfaceui/chromehorizon/WatchFaceBaseFileProvider.java`
+(and the `chromeiris` copy) returns `ab569x_410x502_number.zip` / `..._pointer.zip` only for
+`TOUCHELX_ULTIMA_VOGUE2`. Other TouchELX models get the other sizes. These are base files for the
+TouchGUI SDK (`com/touchgui/sdk`, Bluetrum AB569x chip). Copies are unpacked in `apk\studio_assets\`.
+- `number`: `config.json` (`type:"number"`, `changeBackground/changeColor`, 7 styles), `bg.png`,
+  `N_style.png` previews, and `cfg_resN.watch`.
+- `pointer`: `config.json` (`type:"pointer"`, 5 styles plus `mask` entries), `bg.png`, and per style
+  `N/res_cfg.watch`, `time_img.png`, `mask.png`.
+- The `.watch` files start with magic `WF` (`57 46`). They are TouchGUI resource blobs that the SDK
+  pushes as `cfg_res.watch` / `picture.watch` (`com/touchgui/sdk/c.java:200-267`,
+  `internal/AbstractC2310r2.java:13-28`). The KaHa `02 8E` path does not understand them.
+
+### 6f. Why the raw 411,640-byte `02 94` image did nothing
+
+- `02 94` stores a loose image in the watch's image store, which is why it shows up in `02 13`.
+  `02 96` then binds that image id to a face that has a replaceable background slot. The built-in
+  faces 0-3 evidently have no such slot. The app never uses this pair for an Ultima Prism (6a), so
+  nothing in the APK says which face or image ids would work.
+- The image size was not the problem. The app has no maximum for `02 94`, and the KaHa face format
+  stores uncompressed RGB565 anyway. The only size checks are:
+  - `KHWatchFaceModifier`: the new image must fit the slot (`<= w*h*2`, otherwise "Incorrect image size").
+  - The watch's own `82 8E` "memory exceeded" status.
+- To show a custom picture, wrap it in a face file and upload that with `02 8E` (6b/6c).

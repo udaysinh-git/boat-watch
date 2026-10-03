@@ -11,3 +11,4 @@ intercept/flows.mitm
 intercept/*.mitm
 intercept/bundle.js
 intercept/*.js
+diy_out.bin

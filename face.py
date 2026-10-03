@@ -49,9 +49,9 @@ def java_int(x):
     return x - (1 << 32) if x & 0x80000000 else x
 
 
-def frames(cls, cmd, data, extra):
+def frames(cls, cmd, data, extra, extra_first=False):
     """Same framing as the app's MultiPacketRequestGenerator.generateRequest
-    (withSize=True, extraFirst=False). Quirks kept on purpose: the length
+    (withSize=True). Quirks kept on purpose: the length
     ignores the 4 size bytes, and the 'checksum' is cls + cmd*len*datalen
     with Java int overflow and a signed cmd byte."""
     total = len(data) + len(extra) + 12
@@ -62,7 +62,8 @@ def frames(cls, cmd, data, extra):
 
     head = bytes([0x7F, ck_lo, 0, 0]) + struct.pack("<H", count & 0xFFFF)
     head += bytes([ck_lo, ck_hi, cls, cmd]) + struct.pack("<H", total & 0xFFFF)
-    head += struct.pack("<I", len(data)) + bytes(extra)
+    size = struct.pack("<I", len(data))
+    head += bytes(extra) + size if extra_first else size + bytes(extra)
     first = 150 - len(head)
     yield head + data[:first]
 
@@ -80,24 +81,33 @@ async def wait_for(w, prefix, timeout=10):
             return r
 
 
-async def push_image(w, image_id, pixels):
-    extra = struct.pack("<HBBHH", image_id, 0, 0, H, W) + bytes([crc16(pixels) & 0xFF])
+async def push(w, cmd, data, extra, extra_first=False, ack_offset=0):
+    """Stream a big payload. Every 2 KB the watch has to say "ok, keep going"
+    (class|0x80, cmd, ..., 01) before we send more."""
+    packets = list(frames(0x02, cmd, data, extra, extra_first))
+    ack = bytes([0x82, cmd])
+    print(f"sending {len(data)} bytes in {len(packets)} packets")
     sent = 0
-    packets = list(frames(0x02, 0x94, pixels, extra))
-    print(f"sending {len(pixels)} bytes in {len(packets)} packets")
-
     for n, pkt in enumerate(packets):
         await w.client.write_gatt_char("6e400002-b5a3-f393-e0a9-e50e24dcca9e", pkt, response=True)
         before = sent
         sent += len(pkt) - (12 if n == 0 else 4)
-        # every 2 KB the watch wants to say "ok, keep going"
-        if before // 2048 != sent // 2048 or n == len(packets) - 1:
-            r = await wait_for(w, b"\x82\x94", timeout=15)
+        # int(x / 2048), not x // 2048: Java truncates toward zero, and with
+        # the offset the first packet is negative and would look like a crossing
+        crossed = int((before - ack_offset) / 2048) != int((sent - ack_offset) / 2048)
+        if crossed or n == len(packets) - 1:
+            r = await wait_for(w, ack, timeout=15)
             if r[-1] != 1:
-                raise RuntimeError(f"watch said {r.hex(' ')} at {sent} bytes")
-        if n % 200 == 0:
+                why = "busy" if r[-1] == 0 else "out of memory?"
+                raise RuntimeError(f"watch said {r.hex(' ')} ({why}) at {sent} bytes")
+        if n % 400 == 0:
             print(f"  {100 * n // len(packets)}%")
     print("  done")
+
+
+async def push_image(w, image_id, pixels):
+    extra = struct.pack("<HBBHH", image_id, 0, 0, H, W) + bytes([crc16(pixels) & 0xFF])
+    await push(w, 0x94, pixels, extra)
 
 
 async def main(path, face_id, image_id):
