@@ -26,6 +26,7 @@ I worked out the protocol by decompiling the boAt Crest app. The decompiled code
 | upload a picture | `02 95` then `02 94` (`face.py`) | yes, ~2 min for 410x502 |
 | use it as a face background | `02 96` | no reply on fw 0.00.24 |
 | switch face | `02 8F` | yes |
+| custom face from a picture | `02 8E`, face 996 (`diyface.py`) | yes, 368x448 drawn top-left |
 
 A few things that tripped me up:
 
@@ -33,6 +34,7 @@ A few things that tripped me up:
 - **The notification type can't be 0.** It's the app icon, starting at 1 (3 is SMS, 5 is WhatsApp, and so on).
 - **`02 A5` (find watch) does nothing on this model.** The app checks a feature flag and falls back to sending vibrations, so that's what `find` does here.
 - **Custom backgrounds don't work on this firmware.** The picture uploads fine and shows up in the image list (`02 13`), but `02 96` (set background) and `02 16` (background info) never get a reply. The way forward is a full face file (`02 8E`), which is KaHa's own format.
+- **Custom faces go in as a whole face file.** The app patches its bundled `ca3_diy` template (368x448) with your picture and sends it as face 996. The watch draws it in the top-left of the 410x502 screen, so paint the art on pure black and the edge disappears. Resizing the background or moving the clock gets the face rejected: it uploads fine and then quietly vanishes from the face list.
 - **It won't ring.** It has a speaker for BT calls, but that's over classic Bluetooth, not this BLE link.
 
 ## Running it
