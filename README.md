@@ -23,7 +23,9 @@ I worked out the protocol by decompiling the boAt Crest app. The decompiled code
 | notifications | `02 82` then `02 83` | yes |
 | live heart rate / steps | `01 85` / `01 93` | watch says ok, but no data shows up yet |
 | firmware version | `00 02` | no reply on this firmware |
-| custom watch face | `02 94` → `02 96` → `02 8F` | working on it |
+| upload a picture | `02 95` then `02 94` (`face.py`) | yes, ~2 min for 410x502 |
+| use it as a face background | `02 96` | no reply on fw 0.00.24 |
+| switch face | `02 8F` | yes |
 
 A few things that tripped me up:
 
