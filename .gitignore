@@ -1,0 +1,7 @@
+# decompiled vendor app + APKs: never commit
+apk/
+src/
+jadx.log
+__pycache__/
+*.pyc
+captures/
