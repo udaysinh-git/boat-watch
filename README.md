@@ -10,8 +10,8 @@ Talking to a boAt smartwatch straight from a PC over Bluetooth LE, no boAt Crest
 |---|---|---|
 | Battery | `00 08` | ✅ |
 | Set time and timezone | `00 87` | ✅ |
-| Vibrate | `04 81` | ✅ |
-| Find my watch | `02 A5` | ✅ |
+| Vibrate | `04 81` | ✅ felt |
+| Find my watch | 5× `04 81` (no `02 A5` on this model) | ✅ |
 | Push notification (title + text) | `02 82` enable, then `02 83` | ✅ |
 | Live heart rate / steps | `01 85` / `01 93` | ⚠️ the watch acknowledges, but no data has arrived yet |
 | Firmware version | `00 02` | ⚠️ no reply |

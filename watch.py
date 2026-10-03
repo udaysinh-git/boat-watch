@@ -39,7 +39,10 @@ class Watch:
         n = datetime.datetime.now().astimezone(); off = n.utcoffset().total_seconds() / 60
         sign = 0 if off >= 0 else 1; off = abs(int(off))
         return await self.send(0x00, 0x87, bytes([n.year//100, n.year%100, n.month, n.day, n.hour, n.minute, n.second, sign, off//60, off%60]))
-    async def find(self, on=True): return await self.send(0x02, 0xA5, b"\x01\x78" if on else b"\x02\x00")
+    async def find(self, pulses=5):
+        # PRISM lacks the newer 02 A5 find command; the app sends back-to-back vibrations instead
+        for _ in range(pulses):
+            await self.vibrate(); await asyncio.sleep(0.6)
     async def vibrate(self): return await self.send(0x04, 0x81, b"\x01\x01\x50\x28")
     async def notify(self, title, msg, typ=3):
         # watch rejects (status 02) unless the app-alert categories are enabled first
