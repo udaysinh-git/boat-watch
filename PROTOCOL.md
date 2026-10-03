@@ -524,3 +524,5 @@ Goal was to get a stock firmware `.bin` to base custom firmware on. Result: **no
   compatible programmer. An XDA thread on the near-identical boAt Matrix (same RTL8762x, FitCloudPro)
   reached the same dead end â€” needs a hardware programmer on the board, never dumped over the air.
   `com/realsil/sdk/dfu/*` only *flashes* a local `.bin`; it never downloads one.
+
+- **Fleet-wide check:** ran the same unauthenticated `software/update` call against all ~130 model codes in the app (WA1V1..WA601V2), each claiming the lowest firmware. **Every one returned NO_ACTION / UP_TO_DATE with no downloadUrl** — no exceptions. So either OTA is gated behind a real bound device+account, or these models simply get no firmware updates. No `.bin` is obtainable from this channel for any model.
