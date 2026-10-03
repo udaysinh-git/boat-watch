@@ -491,3 +491,36 @@ TouchGUI SDK (`com/touchgui/sdk`, Bluetrum AB569x chip). Copies are unpacked in 
   - `KHWatchFaceModifier`: the new image must fit the slot (`<= w*h*2`, otherwise "Incorrect image size").
   - The watch's own `82 8E` "memory exceeded" status.
 - To show a custom picture, wrap it in a face file and upload that with `02 8E` (6b/6c).
+
+---------------------------------------------------------------------------------------------------
+
+## 7. Firmware / OTA channel (what we found trying to get a firmware image)
+
+Goal was to get a stock firmware `.bin` to base custom firmware on. Result: **none is downloadable.**
+
+- **The update check works without login.** `POST https://prod.cove.kahaapi.com/software/update?apiRevision=1`
+  with the app's public `x-api-key` / `x-clove-api-key` headers and a body listing the device under both
+  `cloveDevice` and `coveDevices`. The only field that has to be non-null is `customerId` — `"0"` is
+  accepted (a real account id or a GUID both give "This request is not valid"; `0` works). Body that
+  returns 200:
+  ```json
+  {"appFullName":"com.coveiot.android.boat","appVersion":"5.6.5",
+   "cloveDevice":[{"btMacAddress":"<mac>","customerId":"0","firmwareVersion":"v0.00.24",
+     "hardwareVersion":"v0.2","modelNumber":"WA37V1","serialNumber":"<sn>"}],
+   "coveDevices":[{...same...}],
+   "device":{"manufacturer":"samsung","model":"SM-S908E"},
+   "platform":{"apiLevel":"28","platformType":"ANDROID","osVersion":"9"}}
+  ```
+- **Response** (`SoftwareUpdateRes`): `performAction: NO_ACTION`, `updateStatus: UP_TO_DATE`, and a
+  per-device `configUrl` like `https://appstore.coveiot.com/firmware/config/0-wa37v1-v0.00.24.json`.
+  The server just echoes the version you claim into that URL.
+- **There is no newer firmware for WA37V1.** Claiming v0.00.01 / v0.00.10 / v0.00.23 still returns
+  UP_TO_DATE — the server never offers an update, so v0.00.24 is the latest (and only) build.
+- **The configUrl is locked.** `appstore.coveiot.com/firmware/config/...json` returns **403** bare and
+  with the API headers. It's a blanket-deny CDN; a version with no published update 403s rather than
+  404s, and even the current version 403s, i.e. no OTA image was ever published for this model.
+- **Conclusion:** no firmware image is obtainable through the app's own channel. The only remaining
+  route to a dump is hardware: open the watch and read the flash via the TX/RX pads on the PCB with a
+  compatible programmer. An XDA thread on the near-identical boAt Matrix (same RTL8762x, FitCloudPro)
+  reached the same dead end — needs a hardware programmer on the board, never dumped over the air.
+  `com/realsil/sdk/dfu/*` only *flashes* a local `.bin`; it never downloads one.
