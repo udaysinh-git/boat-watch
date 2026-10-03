@@ -30,6 +30,7 @@ A few things that tripped me up:
 - **Notifications get rejected** (status `02`) until you turn on the per-app alert switches with `02 82`. The app does this quietly on connect, so you'd never notice.
 - **The notification type can't be 0.** It's the app icon, starting at 1 (3 is SMS, 5 is WhatsApp, and so on).
 - **`02 A5` (find watch) does nothing on this model.** The app checks a feature flag and falls back to sending vibrations, so that's what `find` does here.
+- **Custom backgrounds don't work on this firmware.** The picture uploads fine and shows up in the image list (`02 13`), but `02 96` (set background) and `02 16` (background info) never get a reply. The way forward is a full face file (`02 8E`), which is KaHa's own format.
 - **It won't ring.** It has a speaker for BT calls, but that's over classic Bluetooth, not this BLE link.
 
 ## Running it

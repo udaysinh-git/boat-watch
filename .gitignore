@@ -5,3 +5,9 @@ jadx.log
 __pycache__/
 *.pyc
 captures/
+
+# captured traffic has my session token in it
+intercept/flows.mitm
+intercept/*.mitm
+intercept/bundle.js
+intercept/*.js
