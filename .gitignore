@@ -12,3 +12,12 @@ intercept/*.mitm
 intercept/bundle.js
 intercept/*.js
 diy_out.bin
+
+# private disclosure material - never commit
+private/
+
+# local credentials
+.env.local
+
+# my own face art, kept out of the repo
+faces/
